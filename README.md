@@ -15,13 +15,7 @@ Gobco also doesn't cover `select` statements.
 With go1.17 or later:
 
 ```text
-$ go install github.com/rillig/gobco@latest
-```
-
-With go1.16:
-
-```text
-$ go get github.com/rillig/gobco
+$ go install github.com/IssacRunmin/gobco@latest
 ```
 
 Older go releases are not supported.
@@ -52,6 +46,26 @@ vartypecheck.go:1027:11: condition "len(invalid) > 1" was once false but never t
 vartypecheck.go:1628:42: condition "cv.MkLines.pkg != nil" was 8 times true but never false
 vartypecheck.go:1630:6: condition "distname.IsConstant()" was 8 times true but never false
 ```
+
+To run gobco on multiple packages with branch coverage enabled, use:
+
+~~~text
+$ gobco -branch ./...
+~~~
+
+The output (with `-list-all`) typically looks like the following example, taken from [testdata/multi-pkgs](testdata/multi-pkgs):
+
+```text
+ok      demo    0.389s [no tests to run]
+ok      demo/bar        0.363s
+ok      demo/foo        0.340s
+
+Branch coverage: 2/2
+
+Branch coverage: 2/2
+bar/bar.go:4:5: condition "x > 0" was once true and once false
+```
+
 
 ## Adding custom test conditions
 
