@@ -36,15 +36,19 @@ type exprSubst struct {
 // instrumenter rewrites the code of a go package
 // by instrumenting all conditions in the code.
 type instrumenter struct {
-	branch      bool // branch coverage, not condition coverage
-	coverTest   bool // also cover the test code
-	immediately bool // persist counts after each increment
-	listAll     bool // also list conditions that are covered
-	debugTypes  bool
+	branch       bool // branch coverage, not condition coverage
+	coverTest    bool // also cover the test code
+	immediately  bool // persist counts after each increment
+	listAll      bool // also list conditions that are covered
+	debugTypes   bool
+	instrumented bool // at least one condition was instrumented
 
 	fset *token.FileSet
 	pkg  map[*ast.Package]*types.Package
 	typ  map[ast.Expr]types.Type
+
+	// The main package name where gobco_test variable is defined.
+	pkgname string
 
 	// While instrumenting of a file, the current package.
 	typePkg *types.Package
@@ -81,7 +85,7 @@ type instrumenter struct {
 // by adding counters for code coverage,
 // writing the instrumented code to dstDir.
 // If singleFile is given, only that file is instrumented.
-func (i *instrumenter) instrument(srcDir, singleFile, dstDir string) bool {
+func (i *instrumenter) instrument(srcDir, singleFile, dstDir string, instrument bool, writeVar bool) bool {
 	i.fset = token.NewFileSet()
 
 	isRelevant := func(info os.FileInfo) bool {
@@ -99,14 +103,17 @@ func (i *instrumenter) instrument(srcDir, singleFile, dstDir string) bool {
 	if len(pkgs) == 0 {
 		return false
 	}
-
-	for _, pkg := range pkgs {
-		forEachFile(pkg, func(name string, file *ast.File) {
-			i.typePkg = i.pkg[pkg]
-			i.instrumentFile(name, file, dstDir)
-		})
+	if instrument {
+		for _, pkg := range pkgs {
+			forEachFile(pkg, func(name string, file *ast.File) {
+				i.typePkg = i.pkg[pkg]
+				i.instrumentFile(name, file, dstDir)
+			})
+		}
+	} else {
+		i.writeGobcoFiles(dstDir, writeVar, pkgs)
 	}
-	i.writeGobcoFiles(dstDir, pkgs)
+
 	return true
 }
 
@@ -163,10 +170,63 @@ func (i *instrumenter) instrumentFile(filename string, astFile *ast.File, dstDir
 }
 
 func (i *instrumenter) instrumentFileNode(f *ast.File) {
+	i.instrumented = false
 	ast.Inspect(f, i.markConds)
 	ast.Inspect(f, i.findRefs)
 	ast.Inspect(f, i.prepareStmts)
 	ast.Inspect(f, i.replace)
+	// check if has conditions to cover here
+	if i.instrumented {
+		i.addGobcoTestImport(f)
+	}
+}
+
+// i.pkgname 是 module path，比如 "demo" 或 "github.com/me/project"
+func (i *instrumenter) addGobcoTestImport(f *ast.File) {
+	path := i.pkgname + "/gobco_test"
+	quoted := strconv.Quote(path) // 会产生 "\"demo/gobco_test\""
+
+	// 如果已经存在相同路径的 import，就返回
+	for _, imp := range f.Imports {
+		if strings.Trim(imp.Path.Value, `"`) == path {
+			return
+		}
+	}
+
+	newSpec := &ast.ImportSpec{
+		Path: &ast.BasicLit{
+			Kind:  token.STRING,
+			Value: quoted,
+		},
+		// 如果你想强制用别名，比如确保在代码中使用 gobco_test 而不是默认包名，
+		// 可以打开下面这一行（不过通常不需要，因为包名就是最后一个路径片段）：
+		// Name: ast.NewIdent("gobco_test"),
+	}
+
+	// 找到已存在的 import GenDecl（如 import (...)），把 newSpec 加进去
+	for _, decl := range f.Decls {
+		g, ok := decl.(*ast.GenDecl)
+		if !ok || g.Tok != token.IMPORT {
+			continue
+		}
+		// append 到第一个 import group
+		g.Specs = append(g.Specs, newSpec)
+		// 同时把 f.Imports 也维护好（便于后续检查）
+		f.Imports = append(f.Imports, newSpec)
+		return
+	}
+
+	// 如果没有任何 import 声明，则创建一个新的 import GenDecl，并把它插在 package 后头（通常是第一个 decl）
+	gen := &ast.GenDecl{
+		Tok:    token.IMPORT,
+		Lparen: token.NoPos,
+		Specs:  []ast.Spec{newSpec},
+	}
+	// 插入到 f.Decls 的开头（紧跟 package 之后）
+	// 有些文件可能有注释或其他声明，这里选择把 import 插在最前面（可根据需要调整位置）
+	f.Decls = append([]ast.Decl{gen}, f.Decls...)
+	// 维护 f.Imports 列表
+	f.Imports = append(f.Imports, newSpec)
 }
 
 // markConds remembers the conditions that will be instrumented later.
@@ -507,11 +567,13 @@ func (i *instrumenter) replace(n ast.Node) bool {
 
 	case ast.Expr:
 		if s := i.exprSubst[n]; s != nil {
+			i.instrumented = true
 			*s.ref = i.callCover(s.expr, s.pos, s.text)
 		}
 
 	case ast.Stmt:
 		if stmt := i.stmtSubst[n]; stmt != nil {
+			i.instrumented = true
 			*i.stmtRef[n] = stmt
 		}
 	}
@@ -623,15 +685,18 @@ var fixedTemplate string
 //go:embed templates/gobco_no_testmain_test.go
 var noTestMainTemplate string
 
-func (i *instrumenter) writeGobcoFiles(tmpDir string, pkgs []*ast.Package) {
+func (i *instrumenter) writeGobcoFiles(tmpDir string, writeVar bool, pkgs []*ast.Package) {
 	pkgname := pkgs[0].Name
 	fixPkgname := func(str string) string {
 		str = strings.TrimPrefix(str, "//go:build ignore\n// +build ignore\n\n")
+		str = strings.Replace(str, "main/gobco_test", i.pkgname+"/gobco_test", 1)
 		return strings.Replace(str, "package main\n", "package "+pkgname+"\n", 1)
 	}
-	writeFile(filepath.Join(tmpDir, "gobco_fixed.go"), fixPkgname(fixedTemplate))
-	i.writeGobcoGo(filepath.Join(tmpDir, "gobco_variable.go"), pkgname)
-
+	if !writeVar {
+		os.MkdirAll(filepath.Join(tmpDir, "gobco_test"), 0o777)
+		writeFile(filepath.Join(tmpDir, "gobco_test", "gobco_fixed.go"), fixPkgname(fixedTemplate))
+		i.writeGobcoGo(filepath.Join(tmpDir, "gobco_test", "gobco_variable.go"), "gobco_test")
+	}
 	if !i.hasTestMain {
 		writeFile(filepath.Join(tmpDir, "gobco_no_testmain_test.go"), fixPkgname(noTestMainTemplate))
 	}
@@ -649,7 +714,7 @@ func (i *instrumenter) writeGobcoGo(filename, pkgname string) {
 	sb.WriteString(fmt.Sprintf("\tlistAll:     %v,\n", i.listAll))
 	sb.WriteString("}\n")
 	sb.WriteString("\n")
-	sb.WriteString("var gobcoCounts = gobcoStats{\n")
+	sb.WriteString("var GobcoCounts = gobcoStats{\n")
 	sb.WriteString("\tconds: []gobcoCond{\n")
 	for _, cond := range i.conds {
 		sb.WriteString(fmt.Sprintf("\t\t{%q, %q, 0, 0},\n",
@@ -767,7 +832,7 @@ func (gen codeGenerator) callGobcoCover(idx int, cond ast.Expr, typ types.Type, 
 		cond = gen.convert(cond, "bool")
 	}
 	var ret ast.Expr = &ast.CallExpr{
-		Fun:    gen.ident("GobcoCover"),
+		Fun:    gen.ident("gobco_test.GobcoCover"),
 		Lparen: gen.pos,
 		Args: []ast.Expr{
 			&ast.BasicLit{

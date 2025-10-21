@@ -45,6 +45,7 @@ type gobco struct {
 	args       []argInfo
 
 	statsFilename string
+	modName       string
 
 	exitCode int
 
@@ -122,17 +123,32 @@ func (g *gobco) parseArgs(args []string) {
 		args = []string{"."}
 	}
 
-	assert(len(args) <= 1, "checking multiple packages doesn't work yet")
+	// assert(len(args) <= 1, "checking multiple packages doesn't work yet")
 
+	// for _, arg := range args {
+	// 	arg = filepath.FromSlash(arg)
+	// 	g.args = append(g.args, g.classify(arg))
+	// }
+	expanded := []string{}
 	for _, arg := range args {
+		if strings.HasSuffix(arg, "/...") {
+			pkgs, modName := g.listPackages(arg)
+			expanded = append(expanded, pkgs...)
+			g.modName = modName
+		} else {
+			expanded = append(expanded, arg)
+		}
+	}
+	randomHex := randomHex(8)
+	for _, arg := range expanded {
 		arg = filepath.FromSlash(arg)
-		g.args = append(g.args, g.classify(arg))
+		g.args = append(g.args, g.classify(arg, randomHex))
 	}
 }
 
 // classify determines how to handle the argument, depending on whether it is
 // a single file or directory, and whether it is located in a Go module or not.
-func (g *gobco) classify(arg string) argInfo {
+func (g *gobco) classify(arg string, randomHex string) argInfo {
 	st, err := os.Stat(arg)
 	isDir := err == nil && st.IsDir()
 
@@ -144,7 +160,7 @@ func (g *gobco) classify(arg string) argInfo {
 	}
 
 	if moduleRoot, moduleRel := g.findInModule(dir); moduleRoot != "" {
-		copyDst := "module-" + randomHex(8) // Must be outside 'gopath/'.
+		copyDst := "module-" + randomHex // Must be outside 'gopath/'.
 		packageDir := filepath.Join(copyDst, moduleRel)
 		return argInfo{
 			arg:       arg,
@@ -215,9 +231,9 @@ func (g *gobco) findInModule(dir string) (moduleRoot, moduleRel string) {
 			g.check(err)
 
 			root := abs
-			if rel == "." {
-				root = dir
-			}
+			// if rel == "." {
+			// 	root = dir
+			// }
 
 			return root, rel
 		}
@@ -243,9 +259,18 @@ func (g *gobco) prepareTmp() {
 	}
 
 	// TODO: Research how "package/..." is handled by other go commands.
+	// for _, arg := range g.args {
+	// 	dstDir := g.file(arg.copyDst)
+	// 	g.check(copyDir(arg.copySrc, dstDir))
+	// }
+	copied := map[string]bool{}
 	for _, arg := range g.args {
+		if copied[arg.copySrc] {
+			continue
+		}
 		dstDir := g.file(arg.copyDst)
 		g.check(copyDir(arg.copySrc, dstDir))
+		copied[arg.copySrc] = true
 	}
 }
 
@@ -256,9 +281,11 @@ func (g *gobco) instrument() bool {
 		g.immediately,
 		g.listAll,
 		false,
+		false,
 		nil,
 		map[*ast.Package]*types.Package{},
 		map[ast.Expr]types.Type{},
+		g.modName,
 		nil,
 		0,
 		map[ast.Expr]bool{},
@@ -272,7 +299,13 @@ func (g *gobco) instrument() bool {
 	found := false
 	for _, arg := range g.args {
 		instrDst := g.file(arg.instrDir)
-		if in.instrument(arg.argDir, arg.instrFile, instrDst) {
+		in.instrument(arg.argDir, arg.instrFile, instrDst, true, false)
+	}
+	// I use found as the first flag for create gobco_test module only once
+	for _, arg := range g.args {
+		instrDst := g.file(arg.instrDir)
+		if in.instrument(arg.argDir, arg.instrFile, instrDst, false, found) {
+
 			found = true
 			g.verbosef("Instrumented %s to %s", arg.arg, instrDst)
 		}

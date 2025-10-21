@@ -8,14 +8,14 @@
 //
 // It serves as a template to be used in instrumenter.writeGobcoGo.
 
-package main
+package gobco_test
 
 var gobcoOpts = gobcoOptions{
 	immediately: true,
 	listAll:     true,
 }
 
-var gobcoCounts = gobcoStats{
+var GobcoCounts = gobcoStats{
 	conds: []gobcoCond{
 		{
 			Start:      "code.go:5:2",

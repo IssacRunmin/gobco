@@ -9,11 +9,13 @@ package main
 import (
 	"os"
 	"testing"
+
+	"main/gobco_test"
 )
 
 func TestMain(m *testing.M) {
-	gobcoCounts.load(gobcoCounts.filename())
+	gobco_test.GobcoCounts.Load(gobco_test.GobcoCounts.Filename())
 	exitCode := m.Run()
-	gobcoCounts.persist()
+	gobco_test.GobcoCounts.Persist()
 	os.Exit(exitCode)
 }

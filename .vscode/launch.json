@@ -1,0 +1,23 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug gobco with demo",
+            "type": "go",
+            "request": "launch",
+            "mode": "debug",
+            "program": "${workspaceFolder}",          // gobco所在目录
+            "args": [
+                "-branch",
+                "-keep",
+                "-list-all",
+                "-verbose",
+                "./..."
+            ],
+            "cwd": "${workspaceFolder}/demo",               // 当前目录
+            "env": {
+                "GO111MODULE": "on"
+            }
+        }
+    ]
+}

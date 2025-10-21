@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
@@ -105,4 +107,37 @@ func assert(cond bool, msg string) {
 	if !cond {
 		panic(msg)
 	}
+}
+
+func (g *gobco) listPackages(pattern string) ([]string, string) {
+	// 1. 读取模块名
+	modName := ""
+	modBytes, err := os.ReadFile("go.mod")
+	if err == nil {
+		re := regexp.MustCompile(`(?m)^module\s+(\S+)`)
+		if match := re.FindStringSubmatch(string(modBytes)); len(match) == 2 {
+			modName = match[1]
+		}
+	}
+
+	// 2. 执行 go list
+	cmd := exec.Command("go", "list", pattern)
+	out, err := cmd.Output()
+	g.check(err)
+
+	// 3. 处理结果
+	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	var pkgs []string
+	for _, l := range lines {
+		if modName != "" {
+			l = strings.TrimPrefix(l, modName)
+			l = strings.TrimPrefix(l, "/")
+		}
+		if l == "" {
+			l = "."
+		}
+		pkgs = append(pkgs, l)
+	}
+
+	return pkgs, modName
 }

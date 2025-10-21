@@ -1,10 +1,7 @@
-//go:build ignore
-// +build ignore
-
 // This is the fixed part of the gobco code that is injected into the
 // package being checked.
 
-package main
+package gobco_test
 
 import (
 	"bufio"
@@ -29,7 +26,7 @@ type gobcoCond struct {
 	FalseCount int
 }
 
-func (st *gobcoStats) filename() string {
+func (st *gobcoStats) Filename() string {
 	filename := os.Getenv("GOBCO_STATS")
 	if filename == "" {
 		panic("gobco: GOBCO_STATS environment variable must be set")
@@ -43,7 +40,7 @@ func (st *gobcoStats) check(err error) {
 	}
 }
 
-func (st *gobcoStats) load(filename string) {
+func (st *gobcoStats) Load(filename string) {
 	file, err := os.Open(filename)
 	if err != nil && os.IsNotExist(err) {
 		return
@@ -84,9 +81,9 @@ func (st *gobcoStats) merge(other *gobcoStats) {
 	}
 }
 
-func (st *gobcoStats) persist() {
+func (st *gobcoStats) Persist() {
 	// TODO: First write to a temporary file.
-	file, err := os.Create(st.filename())
+	file, err := os.Create(st.Filename())
 	st.check(err)
 
 	defer func() { st.check(file.Close()) }()
@@ -109,24 +106,24 @@ func (st *gobcoStats) cover(idx int, cond bool) bool {
 	}
 
 	if gobcoOpts.immediately {
-		st.persist()
+		st.Persist()
 	}
 
 	return cond
 }
 
 func (st *gobcoStats) finish(exitCode int) int {
-	st.persist()
+	st.Persist()
 	return exitCode
 }
 
 // GobcoCover is a top-level function to keep the instrumented code as simple
 // as possible.
 func GobcoCover(idx int, cond bool) bool {
-	return gobcoCounts.cover(idx, cond)
+	return GobcoCounts.cover(idx, cond)
 }
 
 // GobcoFinish needs to be exported to black-box test packages.
 func GobcoFinish(code int) int {
-	return gobcoCounts.finish(code)
+	return GobcoCounts.finish(code)
 }
