@@ -14,7 +14,7 @@
                 "-verbose",
                 "./..."
             ],
-            "cwd": "${workspaceFolder}/demo",               // 当前目录
+            "cwd": "${workspaceFolder}/testdata/multi-pkgs",               // 当前目录
             "env": {
                 "GO111MODULE": "on"
             }

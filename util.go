@@ -139,5 +139,18 @@ func (g *gobco) listPackages(pattern string) ([]string, string) {
 		pkgs = append(pkgs, l)
 	}
 
+	if !contains(pkgs, ".") {
+		pkgs = append([]string{"."}, pkgs...)
+	}
+
 	return pkgs, modName
+}
+
+func contains(slice []string, val string) bool {
+	for _, s := range slice {
+		if s == val {
+			return true
+		}
+	}
+	return false
 }

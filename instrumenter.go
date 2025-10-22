@@ -100,9 +100,9 @@ func (i *instrumenter) instrument(srcDir, singleFile, dstDir string, instrument 
 	ok(err)
 
 	pkgs := sortedPkgs(pkgsMap)
-	if len(pkgs) == 0 {
-		return false
-	}
+	// if len(pkgs) == 0 {
+	// 	return false
+	// }
 	if instrument {
 		for _, pkg := range pkgs {
 			forEachFile(pkg, func(name string, file *ast.File) {
@@ -686,7 +686,10 @@ var fixedTemplate string
 var noTestMainTemplate string
 
 func (i *instrumenter) writeGobcoFiles(tmpDir string, writeVar bool, pkgs []*ast.Package) {
-	pkgname := pkgs[0].Name
+	pkgname := "main"
+	if len(pkgs) > 0 {
+		pkgname = pkgs[0].Name
+	}
 	fixPkgname := func(str string) string {
 		str = strings.TrimPrefix(str, "//go:build ignore\n// +build ignore\n\n")
 		str = strings.Replace(str, "main/gobco_test", i.pkgname+"/gobco_test", 1)
